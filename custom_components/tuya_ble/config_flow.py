@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import pycountry
 from typing import Any
 
 import voluptuous as vol
@@ -110,13 +109,17 @@ def _show_login_form(
                 user_input[CONF_COUNTRY_CODE] = country.name
                 break
 
+    # Pre-select the country whose Tuya country_code matches HA's configured
+    # phone country code, using the inlined TUYA_COUNTRIES table. Avoids the
+    # external pycountry dependency (which broke the config flow with
+    # RequirementsNotFound on HA 2026.x). If no match, the user picks manually.
     def_country_name: str | None = None
-    try:
-        def_country = pycountry.countries.get(alpha_2=flow.hass.config.country)
-        if def_country:
-            def_country_name = def_country.name
-    except:
-        pass
+    ha_country = flow.hass.config.country
+    if ha_country:
+        for country in TUYA_COUNTRIES:
+            if country.name == ha_country or country.country_code == ha_country:
+                def_country_name = country.name
+                break
 
     return flow.async_show_form(
         step_id="login",
