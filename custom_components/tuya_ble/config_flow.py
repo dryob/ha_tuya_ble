@@ -309,7 +309,7 @@ class TuyaBLEOptionsFlow(OptionsFlowWithConfigEntry):
                     if credentials:
                         return self.async_create_entry(
                             title=self.config_entry.title,
-                            data=entry.manager.data,
+                            data=entry.manager.data.copy(),
                         )
                     else:
                         errors["base"] = "device_not_registered"
@@ -376,7 +376,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=credentials[CONF_DEVICE_NAME],
                     data={CONF_ADDRESS: address},
-                    options=self._data,
+                    options=self._data.copy(),
                 )
 
         if user_input is None:
@@ -449,7 +449,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=local_name,
                     data={CONF_ADDRESS: discovery_info.address},
-                    options=self._data,
+                    options=self._data.copy(),
                 )
 
         if discovery := self._discovery_info:
