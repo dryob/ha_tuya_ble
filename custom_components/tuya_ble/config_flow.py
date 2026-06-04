@@ -20,9 +20,13 @@ from homeassistant.components.bluetooth import (
 )
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowHandler, FlowResult
+from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.data_entry_flow import FlowHandler
 
-from homeassistant.components.tuya.const import (
+from .tuya_ble import SERVICE_UUID, TuyaBLEDeviceCredentials
+
+from .const import (
+    DOMAIN,
     CONF_ACCESS_ID,
     CONF_ACCESS_SECRET,
     CONF_APP_TYPE,
@@ -37,12 +41,6 @@ from homeassistant.components.tuya.const import (
     TUYA_RESPONSE_MSG,
     TUYA_RESPONSE_SUCCESS,
     TUYA_SMART_APP,
-)
-
-from .tuya_ble import SERVICE_UUID, TuyaBLEDeviceCredentials
-
-from .const import (
-    DOMAIN,
 )
 from .devices import TuyaBLEData, get_device_readable_name
 from .cloud import HASSTuyaBLEDeviceManager
@@ -104,7 +102,7 @@ def _show_login_form(
     user_input: dict[str, Any],
     errors: dict[str, str],
     placeholders: dict[str, Any],
-) -> FlowResult:
+) -> ConfigFlowResult:
     """Shows the Tuya IOT platform login form."""
     if user_input is not None and user_input.get(CONF_COUNTRY_CODE) is not None:
         for country in TUYA_COUNTRIES:
@@ -160,13 +158,13 @@ class TuyaBLEOptionsFlow(OptionsFlowWithConfigEntry):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         return await self.async_step_login(user_input)
 
     async def async_step_login(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the Tuya IOT platform login step."""
         errors: dict[str, str] = {}
         placeholders: dict[str, Any] = {}
@@ -220,7 +218,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the bluetooth discovery step."""
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
@@ -238,7 +236,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the user step."""
         if self._manager is None:
             self._manager = HASSTuyaBLEDeviceManager(self.hass, self._data)
@@ -247,7 +245,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_login(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the Tuya IOT platform login step."""
         data: dict[str, Any] | None = None
         errors: dict[str, str] = {}
@@ -281,7 +279,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_device(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the user step to pick discovered device."""
         errors: dict[str, str] = {}
 
