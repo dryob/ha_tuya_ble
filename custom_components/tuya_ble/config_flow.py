@@ -17,7 +17,7 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
 )
-from homeassistant.const import CONF_ADDRESS
+from homeassistant.const import CONF_ADDRESS, CONF_DEVICE_ID
 from homeassistant.core import callback
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.data_entry_flow import FlowHandler
@@ -32,6 +32,13 @@ from .const import (
     CONF_AUTH_TYPE,
     CONF_COUNTRY_CODE,
     CONF_ENDPOINT,
+    CONF_CATEGORY,
+    CONF_DEVICE_NAME,
+    CONF_LOCAL_KEY,
+    CONF_PRODUCT_ID,
+    CONF_PRODUCT_MODEL,
+    CONF_PRODUCT_NAME,
+    CONF_UUID,
     CONF_PASSWORD,
     CONF_USERNAME,
     SMARTLIFE_APP,
@@ -41,7 +48,7 @@ from .const import (
     TUYA_RESPONSE_SUCCESS,
     TUYA_SMART_APP,
 )
-from .devices import TuyaBLEData, get_device_readable_name
+from .devices import TuyaBLEData, get_device_readable_name, get_short_address
 from .cloud import HASSTuyaBLEDeviceManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -152,6 +159,90 @@ def _show_login_form(
     )
 
 
+def _non_empty_string(value: Any) -> str:
+    """Validate and normalize a required manual credential field."""
+    if value is None:
+        raise vol.Invalid("required")
+    value = str(value).strip()
+    if not value:
+        raise vol.Invalid("required")
+    return value
+
+
+def _normalize_address(address: Any) -> str:
+    """Normalize BLE MAC addresses stored in config entries."""
+    return _non_empty_string(address).replace("-", ":").upper()
+
+
+def _manual_credentials_from_input(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Build direct local credentials compatible with cloud.py's fast path."""
+    address = _normalize_address(user_input[CONF_ADDRESS])
+    device_name = str(user_input.get(CONF_DEVICE_NAME) or "").strip()
+    if not device_name:
+        device_name = f"Tuya BLE {get_short_address(address)}"
+    product_name = str(user_input.get(CONF_PRODUCT_NAME) or "").strip()
+    if not product_name:
+        product_name = device_name
+    product_model = str(user_input.get(CONF_PRODUCT_MODEL) or "").strip()
+    if not product_model:
+        product_model = _non_empty_string(user_input[CONF_PRODUCT_ID])
+
+    return {
+        CONF_ADDRESS: address,
+        CONF_UUID: _non_empty_string(user_input[CONF_UUID]),
+        CONF_LOCAL_KEY: _non_empty_string(user_input[CONF_LOCAL_KEY]),
+        CONF_DEVICE_ID: _non_empty_string(user_input[CONF_DEVICE_ID]),
+        CONF_CATEGORY: _non_empty_string(user_input[CONF_CATEGORY]),
+        CONF_PRODUCT_ID: _non_empty_string(user_input[CONF_PRODUCT_ID]),
+        CONF_DEVICE_NAME: device_name,
+        CONF_PRODUCT_NAME: product_name,
+        CONF_PRODUCT_MODEL: product_model,
+    }
+
+
+def _show_manual_form(
+    flow: FlowHandler,
+    user_input: dict[str, Any],
+    errors: dict[str, str],
+) -> ConfigFlowResult:
+    """Show the pure-local Tuya BLE credentials form."""
+    def_address = user_input.get(CONF_ADDRESS, "")
+    if not def_address and getattr(flow, "_discovery_info", None):
+        def_address = flow._discovery_info.address
+
+    return flow.async_show_form(
+        step_id="manual",
+        data_schema=vol.Schema(
+            {
+                vol.Required(CONF_ADDRESS, default=def_address): _normalize_address,
+                vol.Required(CONF_UUID, default=user_input.get(CONF_UUID, "")): _non_empty_string,
+                vol.Required(
+                    CONF_LOCAL_KEY, default=user_input.get(CONF_LOCAL_KEY, "")
+                ): _non_empty_string,
+                vol.Required(
+                    CONF_DEVICE_ID, default=user_input.get(CONF_DEVICE_ID, "")
+                ): _non_empty_string,
+                vol.Required(
+                    CONF_CATEGORY, default=user_input.get(CONF_CATEGORY, "")
+                ): _non_empty_string,
+                vol.Required(
+                    CONF_PRODUCT_ID, default=user_input.get(CONF_PRODUCT_ID, "")
+                ): _non_empty_string,
+                vol.Optional(
+                    CONF_DEVICE_NAME, default=user_input.get(CONF_DEVICE_NAME, "")
+                ): str,
+                vol.Optional(
+                    CONF_PRODUCT_NAME, default=user_input.get(CONF_PRODUCT_NAME, "")
+                ): str,
+                vol.Optional(
+                    CONF_PRODUCT_MODEL, default=user_input.get(CONF_PRODUCT_MODEL, "")
+                ): str,
+            }
+        ),
+        errors=errors,
+    )
+
+
 class TuyaBLEOptionsFlow(OptionsFlowWithConfigEntry):
     """Handle a Tuya BLE options flow."""
 
@@ -226,25 +317,47 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
         self._discovery_info = discovery_info
-        if self._manager is None:
-            self._manager = HASSTuyaBLEDeviceManager(self.hass, self._data)
-        await self._manager.build_cache()
         self.context["title_placeholders"] = {
             "name": await get_device_readable_name(
                 discovery_info,
-                self._manager,
+                None,
             )
         }
-        return await self.async_step_login()
+        return await self.async_step_user()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle the user step."""
-        if self._manager is None:
-            self._manager = HASSTuyaBLEDeviceManager(self.hass, self._data)
-        await self._manager.build_cache()
-        return await self.async_step_login()
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["manual", "login"],
+        )
+
+    async def async_step_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle pure-local manual Tuya BLE credentials."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            credentials = _manual_credentials_from_input(user_input)
+            address = credentials[CONF_ADDRESS]
+            await self.async_set_unique_id(address, raise_on_progress=False)
+            self._abort_if_unique_id_configured()
+            self._data.clear()
+            self._data.update(credentials)
+            return self.async_create_entry(
+                title=credentials[CONF_DEVICE_NAME],
+                data={CONF_ADDRESS: address},
+                options=self._data,
+            )
+
+        user_input = dict(self._data)
+        if self._discovery_info:
+            user_input.setdefault(CONF_ADDRESS, self._discovery_info.address)
+
+        return _show_manual_form(self, user_input, errors)
 
     async def async_step_login(
         self, user_input: dict[str, Any] | None = None
@@ -253,6 +366,9 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
         data: dict[str, Any] | None = None
         errors: dict[str, str] = {}
         placeholders: dict[str, Any] = {}
+
+        if self._manager is None:
+            self._manager = HASSTuyaBLEDeviceManager(self.hass, self._data)
 
         if user_input is not None:
             data = await _try_login(
@@ -267,6 +383,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is None:
             user_input = {}
+            await self._manager.build_cache()
             if self._discovery_info:
                 await self._manager.get_device_credentials(
                     self._discovery_info.address,

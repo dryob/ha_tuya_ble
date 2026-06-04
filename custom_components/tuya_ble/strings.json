@@ -10,11 +10,32 @@
     },
     "flow_title": "{name}",
     "step": {
+      "user": {
+        "menu_options": {
+          "manual": "Manual local BLE credentials (no Tuya cloud)",
+          "login": "Tuya IoT cloud login"
+        },
+        "description": "Choose how to add this Tuya BLE device. Use manual local credentials when you already have the device_id/local_key/uuid/product details."
+      },
       "device": {
         "data": {
           "address": "Tuya BLE device"
         },
-        "description": "Select Tuya BLE device to setup. Device must be registered in the cloud using the mobile application. It's better to unbind the device from Tuya Bluetooth gateway, if any."
+        "description": "Select a discovered Tuya BLE device to set up after Tuya IoT cloud login."
+      },
+      "manual": {
+        "data": {
+          "address": "BLE MAC address",
+          "uuid": "UUID",
+          "local_key": "Local key",
+          "device_id": "Device ID",
+          "category": "Category",
+          "product_id": "Product ID",
+          "device_name": "Device name (optional)",
+          "product_name": "Product name (optional)",
+          "product_model": "Product model (optional)"
+        },
+        "description": "Enter locally extracted Tuya BLE credentials. This path does not contact Tuya IoT cloud. Device name defaults to the BLE address suffix; product name defaults to device name; product model defaults to product ID."
       },
       "login": {
         "data": {
