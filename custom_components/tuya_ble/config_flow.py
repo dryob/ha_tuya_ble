@@ -174,9 +174,34 @@ def _normalize_address(address: Any) -> str:
     return _non_empty_string(address).replace("-", ":").upper()
 
 
-def _manual_credentials_from_input(user_input: dict[str, Any]) -> dict[str, Any]:
+def _required_manual_string(
+    user_input: dict[str, Any],
+    field: str,
+    errors: dict[str, str],
+) -> str | None:
+    """Validate and normalize a required manual credential field after POST."""
+    try:
+        return _non_empty_string(user_input.get(field))
+    except vol.Invalid:
+        errors[field] = "manual_required"
+        return None
+
+
+def _manual_credentials_from_input(
+    user_input: dict[str, Any],
+    errors: dict[str, str],
+) -> dict[str, Any] | None:
     """Build direct local credentials compatible with cloud.py's fast path."""
-    address = _normalize_address(user_input[CONF_ADDRESS])
+    address_input = _required_manual_string(user_input, CONF_ADDRESS, errors)
+    uuid = _required_manual_string(user_input, CONF_UUID, errors)
+    local_key = _required_manual_string(user_input, CONF_LOCAL_KEY, errors)
+    device_id = _required_manual_string(user_input, CONF_DEVICE_ID, errors)
+    category = _required_manual_string(user_input, CONF_CATEGORY, errors)
+    product_id = _required_manual_string(user_input, CONF_PRODUCT_ID, errors)
+    if None in (address_input, uuid, local_key, device_id, category, product_id):
+        return None
+
+    address = _normalize_address(address_input)
     device_name = str(user_input.get(CONF_DEVICE_NAME) or "").strip()
     if not device_name:
         device_name = f"Tuya BLE {get_short_address(address)}"
@@ -185,15 +210,15 @@ def _manual_credentials_from_input(user_input: dict[str, Any]) -> dict[str, Any]
         product_name = device_name
     product_model = str(user_input.get(CONF_PRODUCT_MODEL) or "").strip()
     if not product_model:
-        product_model = _non_empty_string(user_input[CONF_PRODUCT_ID])
+        product_model = product_id
 
     return {
         CONF_ADDRESS: address,
-        CONF_UUID: _non_empty_string(user_input[CONF_UUID]),
-        CONF_LOCAL_KEY: _non_empty_string(user_input[CONF_LOCAL_KEY]),
-        CONF_DEVICE_ID: _non_empty_string(user_input[CONF_DEVICE_ID]),
-        CONF_CATEGORY: _non_empty_string(user_input[CONF_CATEGORY]),
-        CONF_PRODUCT_ID: _non_empty_string(user_input[CONF_PRODUCT_ID]),
+        CONF_UUID: uuid,
+        CONF_LOCAL_KEY: local_key,
+        CONF_DEVICE_ID: device_id,
+        CONF_CATEGORY: category,
+        CONF_PRODUCT_ID: product_id,
         CONF_DEVICE_NAME: device_name,
         CONF_PRODUCT_NAME: product_name,
         CONF_PRODUCT_MODEL: product_model,
@@ -214,20 +239,20 @@ def _show_manual_form(
         step_id="manual",
         data_schema=vol.Schema(
             {
-                vol.Required(CONF_ADDRESS, default=def_address): _normalize_address,
-                vol.Required(CONF_UUID, default=user_input.get(CONF_UUID, "")): _non_empty_string,
+                vol.Required(CONF_ADDRESS, default=def_address): str,
+                vol.Required(CONF_UUID, default=user_input.get(CONF_UUID, "")): str,
                 vol.Required(
                     CONF_LOCAL_KEY, default=user_input.get(CONF_LOCAL_KEY, "")
-                ): _non_empty_string,
+                ): str,
                 vol.Required(
                     CONF_DEVICE_ID, default=user_input.get(CONF_DEVICE_ID, "")
-                ): _non_empty_string,
+                ): str,
                 vol.Required(
                     CONF_CATEGORY, default=user_input.get(CONF_CATEGORY, "")
-                ): _non_empty_string,
+                ): str,
                 vol.Required(
                     CONF_PRODUCT_ID, default=user_input.get(CONF_PRODUCT_ID, "")
-                ): _non_empty_string,
+                ): str,
                 vol.Optional(
                     CONF_DEVICE_NAME, default=user_input.get(CONF_DEVICE_NAME, "")
                 ): str,
@@ -341,21 +366,23 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            credentials = _manual_credentials_from_input(user_input)
-            address = credentials[CONF_ADDRESS]
-            await self.async_set_unique_id(address, raise_on_progress=False)
-            self._abort_if_unique_id_configured()
-            self._data.clear()
-            self._data.update(credentials)
-            return self.async_create_entry(
-                title=credentials[CONF_DEVICE_NAME],
-                data={CONF_ADDRESS: address},
-                options=self._data,
-            )
+            credentials = _manual_credentials_from_input(user_input, errors)
+            if credentials is not None:
+                address = credentials[CONF_ADDRESS]
+                await self.async_set_unique_id(address, raise_on_progress=False)
+                self._abort_if_unique_id_configured()
+                self._data.clear()
+                self._data.update(credentials)
+                return self.async_create_entry(
+                    title=credentials[CONF_DEVICE_NAME],
+                    data={CONF_ADDRESS: address},
+                    options=self._data,
+                )
 
-        user_input = dict(self._data)
-        if self._discovery_info:
-            user_input.setdefault(CONF_ADDRESS, self._discovery_info.address)
+        if user_input is None:
+            user_input = dict(self._data)
+            if self._discovery_info:
+                user_input.setdefault(CONF_ADDRESS, self._discovery_info.address)
 
         return _show_manual_form(self, user_input, errors)
 
